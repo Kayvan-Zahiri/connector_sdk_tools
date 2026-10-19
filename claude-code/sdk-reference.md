@@ -110,7 +110,8 @@ Combine these where useful (e.g., "table X: 250K records synced, 3 tables remain
 - `columns` is **optional**. Declare a column's type **only** when you need to force a specific
   type — do **not** declare every column. Leaving columns out lets the SDK infer types and allows
   the schema to evolve as the source changes.
-- Valid schema keys: `table`, `primary_key`, `columns` (any other key is invalid).
+- Valid schema keys: `table`, `primary_key`, `columns`, and the optional `schema` (see
+  **Multiple Schemas** below). Any other key is invalid.
 - Valid data types: `BOOLEAN`, `SHORT`, `INT`, `LONG`, `DECIMAL`, `FLOAT`, `DOUBLE`, `NAIVE_DATE`,
   `NAIVE_DATETIME`, `UTC_DATETIME`, `BINARY`, `XML`, `STRING`, `JSON`.
 - See [Supported Datatypes](https://fivetran.com/docs/connector-sdk/technical-reference#supporteddatatypes)
@@ -128,9 +129,42 @@ def schema(configuration: dict):
     ]
 ```
 
+### Multiple Schemas
+
+A single connector can sync tables from several source schemas (e.g. a database with `sales` and
+`support` schemas) instead of one connection per schema. **Use this only when the user asks for it
+or the source clearly has multiple schemas to sync** — single-schema connectors need no change.
+If the installed SDK rejects `schema`, it is likely out of date — tell the user to upgrade rather than working around it.
+
+Add an optional `schema` key (a non-empty string) to table definitions, and pass the optional `schema=` keyword argument (also a non-empty string) on the record operations (`op.upsert`, `op.update`, `op.delete`, `op.truncate`) for those tables:
+
+```python
+def schema(configuration: dict):
+    return [
+        {"schema": "sales", "table": "orders", "primary_key": ["id"]},
+        {"schema": "support", "table": "tickets", "primary_key": ["id"]},
+    ]
+
+def update(configuration: dict, state: dict):
+    op.upsert(schema="sales", table="orders", data={"id": 123, "amount": "42.50"})
+    op.checkpoint(state=state)
+```
+
+- **Mixing is allowed:** `schema` is optional per table and per operation. Tables and operations without `schema` land in the default schema, which is named after the connection. `schema` must be a non-empty string — never `""` or `None`.
+- **Exact `(schema, table)` match:** a definition applies only to its own pair and is never
+  borrowed from another schema, so `sales.orders` and `support.orders` can have different columns
+  and primary keys. An operation without `schema=` targets the default-schema table, not a schema-qualified one with the same name, so always pass `schema=` on operations for tables declared with `schema`.
+- **`schema()` may be incomplete or absent:** an operation may reference an undeclared schema or
+  table; Fivetran creates it and infers columns (with `_fivetran_id` if no primary key is
+  declared). A genuinely distinct undeclared schema is allowed.
+- **Migration warning:** adding or removing `schema` on an existing table (moving it out of or into the default schema) changes its destination layout (e.g. `analytics.orders` → `analytics_sales.orders`).
+  Fivetran does not move existing destination data — the user must re-sync. Warn before making
+  this change to a connector that is already deployed.
+
 ### Operations
 
-Call operations directly.
+Call operations directly. For tables defined with a `schema`, add `schema="..."` to each record
+operation on them (see **Multiple Schemas**), e.g. `op.upsert(schema="sales", table="t", data=record)`, `op.delete(schema="sales", table="t", keys={...})`.
 
 | Operation | Description |
 |-----------|-------------|
@@ -503,7 +537,7 @@ above rather than silently changing keys or discarding usable local values.
 ## Gotchas
 
 - **`requests` is bundled** — don't add it to requirements.txt
-- **`warehouse.db` is DuckDB, not SQLite** — use `duckdb.connect('files/warehouse.db')`, tables are in the `tester` schema
+- **`warehouse.db` is DuckDB, not SQLite** — use `duckdb.connect('files/warehouse.db')`, tables are in the `tester` schema unless the connector defines `schema` for that table (see **Multiple Schemas**), in which case it lands in its own schema (with the same name normalization applied to schema names)
 - **`fivetran reset` prompts for confirmation** — use `--force` in scripts/agents
 - **Datetime fields** — always use UTC, format as `'%Y-%m-%dT%H:%M:%SZ'`
 - **Never use `exit()`, `sys.exit()`, or `os._exit()`** — the SDK statically scans `connector.py`
@@ -513,7 +547,7 @@ above rather than silently changing keys or discarding usable local values.
   for a module-level `Connector` instance named `connector` specifically; any other name is a
   SEVERE error even though the object itself is valid.
 - **Encrypted configuration values** — if configuration.json contains inline `ENCRYPTED:v1:<key_id>:local-fernet:` values, this is normal; decryption happens at runtime.
-- **Table/column names are transformed for the destination** (lowercase snake_case; non-letter/digit/underscore chars become `_`; camelCase splits) — `schema()` and `op.upsert()`/`op.update()`/`op.delete()`/`op.truncate()` must produce **identical normalized** identifiers for the same table, or a mismatch (e.g. `forecast` vs. `forcast`, or `fore-cast` vs. `forecast` — the latter normalizes to `fore_cast`, which doesn't match `forecast`) silently creates a duplicate destination table with no error. Different raw spellings that normalize to the *same* identifier (e.g. `user_data` and `user-data`) are fine for the same table — they collapse into one.
+- **Table/column/schema names are transformed for the destination** (schema names too, when using Multiple Schemas; lowercase snake_case; non-letter/digit/underscore chars become `_`; camelCase splits) — `schema()` and `op.upsert()`/`op.update()`/`op.delete()`/`op.truncate()` must produce **identical normalized** identifiers for the same table, or a mismatch (e.g. `forecast` vs. `forcast`, or `fore-cast` vs. `forecast` — the latter normalizes to `fore_cast`, which doesn't match `forecast`) silently creates a duplicate destination table with no error. Different raw spellings that normalize to the *same* identifier (e.g. `user_data` and `user-data`) are fine for the same table — they collapse into one.
 
 ## Connector Discovery
 

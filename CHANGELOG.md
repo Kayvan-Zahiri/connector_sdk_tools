@@ -4,6 +4,12 @@ Changes for the Fivetran AI coding agent tools in this repository.
 
 ## October 2026
 
+### fivetran-connector-sdk-tools 2026.10.19.1
+
+- Multiple Schemas support in sdk-reference.md
+- connector-generator uses it only on request or when the source clearly has several schemas; connector-fixer warns about the re-sync and covers common errors; evaluate-connector validates `schema` usage (non-empty string, `schema=` on operations for schema-qualified tables) and offers it as an optional suggestion; connector-validator asks about multiple source schemas.
+- test-connector and build-connector now list tables from all warehouse.db schemas instead of only `tester`.
+
 ### fivetran-connector-sdk-tools 2026.10.14.1
 
 - Documented 1:N Reusable Packages (Private Preview) in sdk-reference.md: `fivetran package create`/`update`/`list` and the hidden `fivetran deploy --package-id <id>` flag, including the shared-package guard that blocks a routine redeploy from silently detaching a connection from a shared package group, and the no-op when rebinding to the package a connection already uses.
