@@ -261,8 +261,15 @@ def discover_destination_name(api_key: str) -> str:
     `fivetran deploy --destination` expects is the destination name shown on the
     dashboard, which is the group name (the CLI documents it as "aka 'group name'").
     """
-    groups_resp = fivetran_get("/groups?limit=1000", api_key)
-    groups = groups_resp.get("data", {}).get("items", [])
+    groups = []
+    path = "/groups?limit=1000"
+    while True:
+        data = fivetran_get(path, api_key).get("data", {})
+        groups.extend(data.get("items", []))
+        cursor = data.get("next_cursor")
+        if not cursor:
+            break
+        path = "/groups?" + urllib.parse.urlencode({"limit": 1000, "cursor": cursor})
     if not groups:
         print("Error: No destinations found in your Fivetran account.")
         print("Create one at https://fivetran.com/dashboard/destinations and re-run.")
